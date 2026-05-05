@@ -36,6 +36,10 @@ bubbles = []
 fragile_walls = []
 ambient_fish = []
 
+# ── Key State ──
+keys = {b'w': False, b'a': False, b's': False, b'd': False, b'q': False, b'e': False, b'c': False}
+special_keys = {GLUT_KEY_UP: False, GLUT_KEY_DOWN: False}
+
 highest_y = 0.0
 
 def generate_chunk(start_y, end_y):
@@ -136,6 +140,8 @@ def draw_text(x, y, text, font=GLUT_BITMAP_HELVETICA_18, r=1.0, g=1.0, b=1.0):
 #  DRAW SUBMARINE
 # ═══════════════════════════════════════════════════════════
 def draw_submarine():
+    if first_person:
+        return
     glPushMatrix()
     glTranslatef(sub_x, sub_y, sub_z)
     glRotatef(sub_yaw, 0, 0, 1)
@@ -194,6 +200,8 @@ def draw_submarine():
 # ═══════════════════════════════════════════════════════════
 def draw_headlight():
     """Thin targeting laser beam — does not block camera view."""
+    if first_person:
+        return
     glPushMatrix()
     glTranslatef(sub_x, sub_y, sub_z)
     glRotatef(sub_yaw, 0, 0, 1)
@@ -335,6 +343,7 @@ def draw_hazards():
     for h in hazards:
         glPushMatrix()
         glTranslatef(h["x"], h["y"], h["z"])
+        glScalef(3.0, 3.0, 3.0)  # Massive, threatening enemies (3x scale)
 
         # Face toward player if aggro, else face roam direction
         dx = sub_x - h["x"]
@@ -529,9 +538,12 @@ def _in_sonar_range(ox, oy, oz):
 def draw_shapes():
     # Floor — dark sandy ocean floor
     f = depth_factor()
+    glPushMatrix()
+    glTranslatef(0, sub_y, 0)
+    
     glBegin(GL_QUADS)
     glColor3f(0.05 * f, 0.12 * f, 0.18 * f)
-    s = GRID_LENGTH
+    s = 15000 # Cover camera view distance
     glVertex3f(-s, -s, 0)
     glVertex3f(s, -s, 0)
     glVertex3f(s, s, 0)
@@ -546,28 +558,11 @@ def draw_shapes():
     glVertex3f(s, s, 400)
     glVertex3f(-s, s, 400)
     glEnd()
+    
+    glPopMatrix()
 
-    _draw_boundary_walls(f, s)
     _draw_cavern_walls(f)
     _draw_fragile_walls(f)
-
-
-def _draw_boundary_walls(f, s):
-    # Deep ocean blue-teal boundary
-    glColor3f(0.0, 0.15 * f, 0.3 * f)
-    for sign in [-1, 1]:
-        glBegin(GL_QUADS)
-        glVertex3f(sign * s, -s, 0)
-        glVertex3f(sign * s, s, 0)
-        glVertex3f(sign * s, s, 400)
-        glVertex3f(sign * s, -s, 400)
-        glEnd()
-        glBegin(GL_QUADS)
-        glVertex3f(-s, sign * s, 0)
-        glVertex3f(s, sign * s, 0)
-        glVertex3f(s, sign * s, 400)
-        glVertex3f(-s, sign * s, 400)
-        glEnd()
 
 
 def drawGreenery(x, y, z, f, seed_val):
@@ -686,78 +681,32 @@ def _draw_fragile_walls(f):
 # ═══════════════════════════════════════════════════════════
 #  KEYBOARD LISTENER  (W/S/A/D/Q/E/F/R)
 # ═══════════════════════════════════════════════════════════
-def keyboardListener(key, x, y):
-    global sub_yaw, vel_x, vel_y, vel_z, game_over, game_won
-    global oxygen, score, sonar_active, sonar_radius
-    global first_person, sub_x, sub_y, sub_z, sub_pitch
-
-    if game_over or game_won:
-        if key == b'r':
-            reset_game()
-        return
-
-    rad = math.radians(sub_yaw)
-    pitch_rad = math.radians(sub_pitch)
-    cos_y = math.cos(rad)
-    sin_y = math.sin(rad)
-    cos_p = math.cos(pitch_rad)
-
-    # W – forward thrust
-    if key == b'w':
-        vel_x += thrust_power * cos_y * cos_p
-        vel_y += thrust_power * sin_y * cos_p
-        vel_z += thrust_power * math.sin(pitch_rad)
-
-    # S – reverse thrust
-    if key == b's':
-        vel_x -= thrust_power * 0.5 * cos_y * cos_p
-        vel_y -= thrust_power * 0.5 * sin_y * cos_p
-        vel_z -= thrust_power * 0.5 * math.sin(pitch_rad)
-
-    # A – turn left
-    if key == b'a':
-        sub_yaw += turn_speed
-
-    # D – turn right
-    if key == b'd':
-        sub_yaw -= turn_speed
-
-    # Q – move up
-    if key == b'q':
-        vel_z += thrust_power * 0.6
-
-    # E – move down
-    if key == b'e':
-        vel_z -= thrust_power * 0.6
-
-    # F – sonar pulse
-    if key == b'f':
-        sonar_active = True
-        sonar_radius = 0.0
-
-    # R – reset
-    if key == b'r':
+def keyboardDownListener(key, x, y):
+    global sonar_active, sonar_radius, first_person
+    key = key.lower()
+    if key in keys:
+        keys[key] = True
+    elif key == b'f':
+        if not game_over and not game_won:
+            sonar_active = True
+            sonar_radius = 0.0
+    elif key == b'c':
+        first_person = not first_person
+    elif key == b'r':
         reset_game()
 
+def keyboardUpListener(key, x, y):
+    key = key.lower()
+    if key in keys:
+        keys[key] = False
 
-# ═══════════════════════════════════════════════════════════
-#  SPECIAL KEY LISTENER  (Arrow keys for pitch)
-# ═══════════════════════════════════════════════════════════
-def specialKeyListener(key, x, y):
-    global sub_pitch
-    if game_over or game_won:
-        return
-    # Up arrow – pitch nose down
-    if key == GLUT_KEY_UP:
-        sub_pitch -= turn_speed
-    # Down arrow – pitch nose up
-    if key == GLUT_KEY_DOWN:
-        sub_pitch += turn_speed
-    # Clamp pitch
-    if sub_pitch > 60:
-        sub_pitch = 60
-    if sub_pitch < -60:
-        sub_pitch = -60
+def specialKeyDownListener(key, x, y):
+    if key in special_keys:
+        special_keys[key] = True
+
+def specialKeyUpListener(key, x, y):
+    if key in special_keys:
+        special_keys[key] = False
 
 
 # ═══════════════════════════════════════════════════════════
@@ -790,12 +739,18 @@ def mouseListener(button, state, x, y):
 def setupCamera():
     glMatrixMode(GL_PROJECTION)
     glLoadIdentity()
-    gluPerspective(fovY, 1.25, 0.1, 4000)
+    # Pushed zFar clipping plane to 15000.0 as requested
+    gluPerspective(fovY, 1.25, 0.1, 15000.0)
     glMatrixMode(GL_MODELVIEW)
     glLoadIdentity()
 
-    # Rigid Selfie-Stick 3rd-Person Camera
-    # (Adapted to current Y-forward coordinate system)
+    if first_person:
+        # HARDCODED FPP Camera per request: eye and center track sub_x, sub_y 1:1
+        # Logic: gluLookAt(sub_x, sub_y, sub_z, sub_x, sub_y, sub_z - 1000, 0, 1, 0)
+        gluLookAt(sub_x, sub_y, sub_z, sub_x, sub_y, sub_z - 1000, 0, 1, 0)
+        return
+
+    # 3rd-Person Camera
     eyeX = sub_x
     eyeY = sub_y - 250
     eyeZ = sub_z + 100
@@ -810,10 +765,10 @@ def setupCamera():
 
 
 # ═══════════════════════════════════════════════════════════
-#  IDLE  (Physics, currents, oxygen)
+#  UPDATE  (Physics, currents, oxygen, 60fps)
 # ═══════════════════════════════════════════════════════════
-def idle():
-    global sub_x, sub_y, sub_z, vel_x, vel_y, vel_z
+def update(value=0):
+    global sub_x, sub_y, sub_z, sub_yaw, sub_pitch, vel_x, vel_y, vel_z
     global oxygen, health, level, level_up_timer, highest_y, score, damage_cooldown
     global game_over, sonar_active, sonar_radius
     global game_time
@@ -822,6 +777,41 @@ def idle():
     game_time += 0.016  # ~60fps step
 
     if not game_over and not game_won:
+        # --- Handle continuous movement from Key State ---
+        rad = math.radians(sub_yaw)
+        pitch_rad = math.radians(sub_pitch)
+        cos_y = math.cos(rad)
+        sin_y = math.sin(rad)
+        cos_p = math.cos(pitch_rad)
+
+        if keys[b'w']:
+            vel_x += thrust_power * cos_y * cos_p
+            vel_y += thrust_power * sin_y * cos_p
+            vel_z += thrust_power * math.sin(pitch_rad)
+        if keys[b's']:
+            vel_x -= thrust_power * 0.5 * cos_y * cos_p
+            vel_y -= thrust_power * 0.5 * sin_y * cos_p
+            vel_z -= thrust_power * 0.5 * math.sin(pitch_rad)
+        if keys[b'a']:
+            sub_yaw += turn_speed
+        if keys[b'd']:
+            sub_yaw -= turn_speed
+        if keys[b'q']:
+            vel_z += thrust_power * 0.6
+        if keys[b'e']:
+            vel_z -= thrust_power * 0.6
+            
+        if special_keys[GLUT_KEY_UP]:
+            sub_pitch -= turn_speed
+        if special_keys[GLUT_KEY_DOWN]:
+            sub_pitch += turn_speed
+            
+        # Clamp pitch
+        if sub_pitch > 60:
+            sub_pitch = 60
+        if sub_pitch < -60:
+            sub_pitch = -60
+
         # ── Leveling System ──
         new_level = max(1, score // 1000 + 1)
         if new_level > level:
@@ -860,9 +850,10 @@ def idle():
                 vel_y += c["push"][1]
                 vel_z += c["push"][2]
 
-        # ── Endless Generation & Cleanup ──
-        if sub_y + 4000 > highest_y:
-            generate_chunk(highest_y, highest_y + 1000)
+        # ── Endless Generation & Cleanup (Micro-Spawning) ──
+        # Spawning boundary pushed back to 8000 units away to stop pop-in
+        if sub_y + 8000 > highest_y:
+            generate_chunk(highest_y, highest_y + 200)
 
         cleanup_y = sub_y - 1000
         walls[:] = [w for w in walls if w["y"] > cleanup_y]
@@ -907,6 +898,7 @@ def idle():
                 sonar_radius = 0
 
     glutPostRedisplay()
+    glutTimerFunc(16, update, 0)
 
 
 # ═══════════════════════════════════════════════════════════
@@ -986,15 +978,17 @@ def draw_rescue_pods():
         q2 = gluNewQuadric()
         gluSphere(q2, 4, 10, 10)
         
-        glPopMatrix()
+        # Blinking Siren Effect (Replaces SOS text)
+        glTranslatef(0, 0, 8) # On top of the dome
+        # Toggle color every 500ms
+        if (int(glutGet(GLUT_ELAPSED_TIME) / 500) % 2 == 0):
+            glColor3f(1.0, 0.0, 0.0) # Bright Red
+        else:
+            glColor3f(0.3, 0.0, 0.0) # Dark Red
+        q_siren = gluNewQuadric()
+        gluSphere(q_siren, 3, 10, 10)
         
-        # Floating Text: SOS hovering directly above the pod in 3D space
-        try:
-            winX, winY, winZ = gluProject(p["x"], p["y"], p["z"] + 25, model, proj, view)
-            if 0 <= winZ <= 1:
-                draw_text(winX - 25, winY, "SOS!", r=1.0, g=0.2, b=0.1)
-        except Exception:
-            pass
+        glPopMatrix()
 
 
 # ═══════════════════════════════════════════════════════════
@@ -1004,6 +998,7 @@ def drawOxygenCylinder(x, y, z, pinged):
     """Draw a standalone Silver/Grey cylinder with Bright Green band."""
     glPushMatrix()
     glTranslatef(x, y, z)
+    glScalef(3.0, 3.0, 3.0)  # Massive, easily identifiable items (3x scale)
     glRotatef(game_time * 45, 0, 0, 1)  # collectible spin
 
     # Tank body — silver/grey vertical cylinder
@@ -1057,6 +1052,7 @@ def draw_pickups():
     for c in upgrade_crates:
         glPushMatrix()
         glTranslatef(c["x"], c["y"], c["z"])
+        glScalef(3.0, 3.0, 3.0)  # Massive items (3x scale)
         pinged = sonar_active and _in_sonar_range(c["x"], c["y"], c["z"])
         if pinged:
             glColor3f(1.0, 1.0, 0.3)
@@ -1154,26 +1150,6 @@ def draw_hud():
 
 
 # ═══════════════════════════════════════════════════════════
-#  DRAW CURRENT ZONES (visual debug aid)
-# ═══════════════════════════════════════════════════════════
-def draw_currents():
-    f = depth_factor()
-    for c in currents:
-        glPushMatrix()
-        cx = (c["x1"] + c["x2"]) / 2
-        cy = (c["y1"] + c["y2"]) / 2
-        cz = (c["z1"] + c["z2"]) / 2
-        sx = c["x2"] - c["x1"]
-        sy = c["y2"] - c["y1"]
-        sz = c["z2"] - c["z1"]
-        glTranslatef(cx, cy, cz)
-        glColor3f(0.0, 0.15 * f, 0.25 * f)
-        glScalef(sx, sy, sz)
-        glutSolidCube(1)
-        glPopMatrix()
-
-
-# ═══════════════════════════════════════════════════════════
 #  RESET GAME
 # ═══════════════════════════════════════════════════════════
 def reset_game():
@@ -1230,7 +1206,6 @@ def showScreen():
 
     # Render world
     draw_shapes()
-    draw_currents()
     draw_bubbles()
     draw_rescue_pods()
     draw_pickups()
@@ -1258,13 +1233,15 @@ def main():
     glutCreateWindow(b"3D Deep Sea Rescue: Submarine Navigator")
 
     glEnable(GL_DEPTH_TEST)
-    glClearColor(0.0, 0.02, 0.08, 1.0)
+    glClearColor(0.0, 0.1, 0.3, 1.0)
 
     glutDisplayFunc(showScreen)
-    glutKeyboardFunc(keyboardListener)
-    glutSpecialFunc(specialKeyListener)
+    glutKeyboardFunc(keyboardDownListener)
+    glutKeyboardUpFunc(keyboardUpListener)
+    glutSpecialFunc(specialKeyDownListener)
+    glutSpecialUpFunc(specialKeyUpListener)
     glutMouseFunc(mouseListener)
-    glutIdleFunc(idle)
+    glutTimerFunc(16, update, 0)
 
     glutMainLoop()
 
